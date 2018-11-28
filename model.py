@@ -62,12 +62,16 @@ class Seq2SeqModel(object):
 
         print('Constructing decoder ...')
         with tf.variable_scope('decoder'):
+            batch_size = self.batch_size
             encoder_length = self.encoder_length
             # if use the beam search trick, encoder outputs should be copy beam_size times through tile_batch() 
-            if self.beam_search:
+            if self.mode == 'decode' and self.beam_search:
                 print('Using beam search for decoding ...')
+                # batch_size of zeros_state is equal to true_batch_size * beam_size
+                batch_size = self.batch_size * self.beam_size
                 encoder_output = tf.contrib.seq2seq.tile_batch(encoder_output, multiplier=self.beam_size)
-                encoder_state = nest.map_structure(lambda s: tf.contrib.seq2seq.tile_batch(s, self.beam_size), encoder_state)
+                #encoder_state = nest.map_structure(lambda s: tf.contrib.seq2seq.tile_batch(s, self.beam_size), encoder_state)
+                encoder_state = tf.contrib.seq2seq.tile_batch(encoder_state, multiplier=self.beam_size)
                 encoder_length = tf.contrib.seq2seq.tile_batch(self.encoder_length, multiplier=self.beam_size)
             # choose an attention mechanism, BahdanauAttention of LuongAttention
             attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(num_units=self.rnn_size,
@@ -78,11 +82,12 @@ class Seq2SeqModel(object):
                                                                 attention_mechanism=attention_mechanism,
                                                                 attention_layer_size=self.rnn_size,
                                                                 name='attention_wrapper')
-            decoder_initial_state = decoder_cell.zero_state(batch_size=self.batch_size, dtype=tf.float32)
+
+            decoder_initial_state = decoder_cell.zero_state(batch_size=batch_size, dtype=tf.float32)
             decoder_initial_state = decoder_initial_state.clone(cell_state=encoder_state)
             output_layer = tf.layers.Dense(self.vocab_size, 
                                         kernel_initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
-
+            
             print('Model mode is %s' % self.mode)
             if self.mode == 'train':
                 # delete the <end> symbol of each sequence 
